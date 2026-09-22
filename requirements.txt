@@ -1,0 +1,7 @@
+streamlit>=1.39,<1.40
+openai>=1.54,<2
+tavily-python>=0.5,<1
+pydantic>=2.9,<3
+pydantic-settings>=2.6,<3
+python-dotenv>=1.0,<2
+pytest>=8.3,<9

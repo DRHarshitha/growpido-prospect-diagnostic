@@ -1,0 +1,8 @@
+{
+  "errors": [
+    "RuntimeError: Ollama native generation failed: timed out"
+  ],
+  "diagnostic_generated": false,
+  "diagnostic_reason": "Not generated: explicit human approval was not supplied.",
+  "evidence_count": 8
+}

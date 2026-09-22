@@ -1,0 +1,102 @@
+"""Phase 2 public-web, evidence-first Prospect → Diagnostic workflow."""
+import streamlit as st
+
+from src.config import get_settings
+from src.diagnostic import render_diagnostic
+from src.extraction import extract_from_evidence
+from src.models import DiagnosticRun, RunMetadata, RunStage, SourceType
+from src.providers.llm import create_llm_provider
+from src.providers.search import TavilySearchProvider
+from src.research import search_public_evidence
+from src.storage import LocalRunStore
+from src.verification import verify_claims
+
+st.set_page_config(page_title="Prospect to Diagnostic", page_icon="🔎", layout="wide")
+
+
+def main() -> None:
+    settings = get_settings()
+    st.title("Prospect to Diagnostic")
+    st.caption("Phase 2 — public-web research, deterministic verification, and human approval")
+    st.info("The LinkedIn URL is an identity reference only. This app never fetches LinkedIn, logs in, uses private data, bypasses controls, contacts people, or uses AWS.")
+    provider_label = "Ollama" if settings.llm_provider.lower() == "ollama" else settings.llm_provider.title()
+    active_model = settings.ollama_model if settings.llm_provider.lower() == "ollama" else settings.openai_model
+    st.caption(f"Active LLM: {provider_label} / {active_model}")
+
+    linkedin_url = st.text_input("Public LinkedIn profile URL", placeholder="https://www.linkedin.com/in/example")
+    left, right = st.columns(2)
+    name_hint = left.text_input("Name hint (optional; improves public-web search)")
+    company_hint = right.text_input("Company/fund hint (optional; improves public-web search)")
+    if st.button("1. Research public sources", type="primary"):
+        if not settings.tavily_api_key:
+            st.error("Set TAVILY_API_KEY in .env before public-web research.")
+        else:
+            try:
+                st.session_state.evidence = search_public_evidence(
+                    TavilySearchProvider(settings.tavily_api_key), linkedin_url,
+                    name_hint=name_hint, company_hint=company_hint,
+                )
+                st.session_state.linkedin_url = linkedin_url
+                st.session_state.identity = None
+                st.session_state.claims = []
+                st.session_state.refused_claims = []
+                st.success(f"Stored {len(st.session_state.evidence)} public evidence records. Review source types before extraction.")
+            except (ValueError, RuntimeError) as error:
+                st.error(str(error))
+
+    evidence = st.session_state.get("evidence", [])
+    if evidence:
+        st.subheader("2. Review stored evidence")
+        revised = []
+        for item in evidence:
+            columns = st.columns([3, 2])
+            columns[0].markdown(f"[{item.title}]({item.url})\n\n{item.supporting_excerpt}")
+            source_type = columns[1].selectbox("Source type", list(SourceType), index=list(SourceType).index(item.source_type), key=str(item.evidence_id))
+            revised.append(item.model_copy(update={"source_type": source_type}))
+        st.session_state.evidence = revised
+        if st.button("3. Extract identity and candidate claims from evidence"):
+            if settings.llm_provider.lower() == "openai" and not settings.openai_api_key:
+                st.error("Set OPENAI_API_KEY in .env when LLM_PROVIDER=openai. No verification occurs in the LLM.")
+            else:
+                try:
+                    provider = create_llm_provider(
+                        provider=settings.llm_provider,
+                        openai_api_key=settings.openai_api_key,
+                        openai_model=settings.openai_model,
+                        ollama_base_url=settings.ollama_base_url,
+                        ollama_model=settings.ollama_model,
+                    )
+                    identity, proposals = extract_from_evidence(provider, revised)
+                    claims, refusals = verify_claims(proposals, revised)
+                    st.session_state.identity = identity
+                    st.session_state.claims = claims
+                    st.session_state.refused_claims = refusals
+                    st.success(f"Extracted {len(claims)} candidates; verification used deterministic evidence rules.")
+                except Exception as error:
+                    st.error(f"Extraction failed; no claims were accepted: {error}")
+
+    claims = st.session_state.get("claims", [])
+    identity = st.session_state.get("identity")
+    if claims:
+        st.subheader("4. Deterministic verification review")
+        for claim in claims:
+            st.write(f"**{claim.status.value.replace('_', ' ').title()}** — {claim.text}")
+            st.caption(claim.verification_reason)
+        st.subheader("5. Required human approval")
+        approved = st.checkbox("I reviewed the stored evidence, claim statuses, contradictions, and refused claims; approve final diagnostic generation.")
+        if approved and st.button("Generate approved one-page diagnostic"):
+            if not identity:
+                st.error("No public-evidence identity was extracted; do not generate a diagnostic.")
+            else:
+                run = DiagnosticRun(metadata=RunMetadata(linkedin_url=st.session_state.linkedin_url, stage=RunStage.DIAGNOSTIC, human_review_approved=True),
+                                    evidence=st.session_state.evidence, claims=claims,
+                                    refused_claims=st.session_state.get("refused_claims", []))
+                LocalRunStore(settings.runs_directory).save(run)
+                report = render_diagnostic(run, identity)
+                st.subheader("Approved Prospect Diagnostic")
+                st.markdown(report)
+                st.download_button("Export diagnostic (.md)", report, file_name="prospect-diagnostic.md", mime="text/markdown")
+
+
+if __name__ == "__main__":
+    main()
