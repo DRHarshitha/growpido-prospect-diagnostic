@@ -5,3 +5,4 @@ pydantic>=2.9,<3
 pydantic-settings>=2.6,<3
 python-dotenv>=1.0,<2
 pytest>=8.3,<9
+google-genai

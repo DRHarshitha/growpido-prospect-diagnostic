@@ -25,7 +25,8 @@ def main() -> None:
 
     st.title("Prospect to Diagnostic")
     st.caption(
-        "Phase 2 — public-web research, deterministic verification, and human approval"
+        "Phase 2 — public-web research, deterministic verification, "
+        "and human approval"
     )
 
     st.info(
@@ -34,19 +35,31 @@ def main() -> None:
         "bypasses controls, contacts people, or uses AWS."
     )
 
+    # --------------------------------------------------------------
+    # Active LLM
+    # --------------------------------------------------------------
+
+    provider_name = settings.llm_provider.lower()
+
     provider_label = (
         "Ollama"
-        if settings.llm_provider.lower() == "ollama"
-        else settings.llm_provider.title()
+        if provider_name == "ollama"
+        else provider_name.title()
     )
 
-    active_model = (
-        settings.ollama_model
-        if settings.llm_provider.lower() == "ollama"
-        else settings.openai_model
+    active_model = {
+        "ollama": settings.ollama_model,
+        "openai": settings.openai_model,
+        "gemini": settings.gemini_model,
+    }.get(provider_name, "unknown")
+
+    st.caption(
+        f"Active LLM: {provider_label} / {active_model}"
     )
 
-    st.caption(f"Active LLM: {provider_label} / {active_model}")
+    # --------------------------------------------------------------
+    # Prospect input
+    # --------------------------------------------------------------
 
     linkedin_url = st.text_input(
         "Public LinkedIn profile URL",
@@ -63,22 +76,28 @@ def main() -> None:
         "Company/fund hint (optional; improves public-web search)"
     )
 
-    # ------------------------------------------------------------------
+    # ==============================================================
     # 1. PUBLIC-WEB RESEARCH
-    # ------------------------------------------------------------------
+    # ==============================================================
 
-    if st.button("1. Research public sources", type="primary"):
-
-        # Local development uses .env through settings.
+    if st.button(
+        "1. Research public sources",
+        type="primary",
+    ):
+        # Local development uses .env.
         # Streamlit Cloud uses st.secrets.
         tavily_api_key = settings.tavily_api_key
 
         if not tavily_api_key:
-            tavily_api_key = st.secrets.get("TAVILY_API_KEY", "")
+            tavily_api_key = st.secrets.get(
+                "TAVILY_API_KEY",
+                "",
+            )
 
         if not tavily_api_key:
             st.error(
-                "Set TAVILY_API_KEY in local .env or Streamlit Cloud Secrets."
+                "Set TAVILY_API_KEY in local .env "
+                "or Streamlit Cloud Secrets."
             )
 
         else:
@@ -96,18 +115,22 @@ def main() -> None:
                 st.session_state.refused_claims = []
 
                 st.success(
-                    f"Stored {len(st.session_state.evidence)} public evidence "
-                    "records. Review source types before extraction."
+                    f"Stored {len(st.session_state.evidence)} "
+                    "public evidence records. "
+                    "Review source types before extraction."
                 )
 
             except (ValueError, RuntimeError) as error:
                 st.error(str(error))
 
-    # ------------------------------------------------------------------
+    # ==============================================================
     # 2. REVIEW STORED EVIDENCE
-    # ------------------------------------------------------------------
+    # ==============================================================
 
-    evidence = st.session_state.get("evidence", [])
+    evidence = st.session_state.get(
+        "evidence",
+        [],
+    )
 
     if evidence:
         st.subheader("2. Review stored evidence")
@@ -127,45 +150,89 @@ def main() -> None:
             source_type = columns[1].selectbox(
                 "Source type",
                 source_types,
-                index=source_types.index(item.source_type),
+                index=source_types.index(
+                    item.source_type
+                ),
                 key=str(item.evidence_id),
             )
 
             revised.append(
                 item.model_copy(
-                    update={"source_type": source_type}
+                    update={
+                        "source_type": source_type
+                    }
                 )
             )
 
         st.session_state.evidence = revised
 
-        # ------------------------------------------------------------------
+        # ==========================================================
         # 3. EXTRACT IDENTITY + CANDIDATE CLAIMS
-        # ------------------------------------------------------------------
+        # ==========================================================
 
         if st.button(
             "3. Extract identity and candidate claims from evidence"
         ):
+            # ------------------------------------------------------
+            # Check required LLM credentials
+            # ------------------------------------------------------
 
             if (
-                settings.llm_provider.lower() == "openai"
+                provider_name == "openai"
                 and not settings.openai_api_key
             ):
                 st.error(
-                    "Set OPENAI_API_KEY in local .env or Streamlit Secrets "
-                    "when LLM_PROVIDER=openai. No verification occurs in "
-                    "the LLM."
+                    "Set OPENAI_API_KEY in local .env "
+                    "or Streamlit Secrets when "
+                    "LLM_PROVIDER=openai. "
+                    "No verification occurs in the LLM."
+                )
+
+            elif (
+                provider_name == "gemini"
+                and not (
+                    settings.gemini_api_key
+                    or st.secrets.get(
+                        "GEMINI_API_KEY",
+                        "",
+                    )
+                )
+            ):
+                st.error(
+                    "Set GEMINI_API_KEY in local .env "
+                    "or Streamlit Secrets when "
+                    "LLM_PROVIDER=gemini."
                 )
 
             else:
                 try:
+                    # --------------------------------------------------
+                    # Gemini key:
+                    # .env locally OR Streamlit Secrets in cloud
+                    # --------------------------------------------------
+
+                    gemini_api_key = settings.gemini_api_key
+
+                    if not gemini_api_key:
+                        gemini_api_key = st.secrets.get(
+                            "GEMINI_API_KEY",
+                            "",
+                        )
+
                     provider = create_llm_provider(
                         provider=settings.llm_provider,
                         openai_api_key=settings.openai_api_key,
                         openai_model=settings.openai_model,
                         ollama_base_url=settings.ollama_base_url,
                         ollama_model=settings.ollama_model,
+                        gemini_api_key=gemini_api_key,
+                        gemini_model=settings.gemini_model,
                     )
+
+                    # --------------------------------------------------
+                    # LLM proposes identity/claims only.
+                    # Verification remains deterministic.
+                    # --------------------------------------------------
 
                     identity, proposals = extract_from_evidence(
                         provider,
@@ -192,15 +259,23 @@ def main() -> None:
                         f"{error}"
                     )
 
-    # ------------------------------------------------------------------
+    # ==============================================================
     # 4. DETERMINISTIC VERIFICATION REVIEW
-    # ------------------------------------------------------------------
+    # ==============================================================
 
-    claims = st.session_state.get("claims", [])
-    identity = st.session_state.get("identity")
+    claims = st.session_state.get(
+        "claims",
+        [],
+    )
+
+    identity = st.session_state.get(
+        "identity"
+    )
 
     if claims:
-        st.subheader("4. Deterministic verification review")
+        st.subheader(
+            "4. Deterministic verification review"
+        )
 
         for claim in claims:
             st.write(
@@ -208,13 +283,17 @@ def main() -> None:
                 f"— {claim.text}"
             )
 
-            st.caption(claim.verification_reason)
+            st.caption(
+                claim.verification_reason
+            )
 
-        # ------------------------------------------------------------------
-        # 5. HUMAN APPROVAL
-        # ------------------------------------------------------------------
+        # ==========================================================
+        # 5. REQUIRED HUMAN APPROVAL
+        # ==========================================================
 
-        st.subheader("5. Required human approval")
+        st.subheader(
+            "5. Required human approval"
+        )
 
         approved = st.checkbox(
             "I reviewed the stored evidence, claim statuses, "
@@ -225,7 +304,6 @@ def main() -> None:
         if approved and st.button(
             "Generate approved one-page diagnostic"
         ):
-
             if not identity:
                 st.error(
                     "No public-evidence identity was extracted; "
@@ -256,7 +334,9 @@ def main() -> None:
                     identity,
                 )
 
-                st.subheader("Approved Prospect Diagnostic")
+                st.subheader(
+                    "Approved Prospect Diagnostic"
+                )
 
                 st.markdown(report)
 
