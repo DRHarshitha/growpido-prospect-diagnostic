@@ -81,7 +81,7 @@ class OllamaProvider(LLMProvider):
     def __init__(
         self,
         base_url: str = "http://localhost:11434",
-        model: str = "qwen2.5:0.5b",
+        model: str = "qwen3.6:0.5b",
     ) -> None:
         self.base_url = base_url.rstrip("/").removesuffix("/v1")
         self.model = model
@@ -156,7 +156,7 @@ class GeminiProvider(LLMProvider):
     def __init__(
         self,
         api_key: str | None = None,
-        model: str = "gemini-2.5-flash",
+        model: str = "gemini-3.6-flash",
     ) -> None:
         self.api_key = api_key
         self.model = model
