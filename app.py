@@ -27,15 +27,32 @@ def main() -> None:
     left, right = st.columns(2)
     name_hint = left.text_input("Name hint (optional; improves public-web search)")
     company_hint = right.text_input("Company/fund hint (optional; improves public-web search)")
+    # if st.button("1. Research public sources", type="primary"):
+    #     if not settings.tavily_api_key:
+    #         st.error("Set TAVILY_API_KEY in .env before public-web research.")
+    #     else:
+    #         try:
+    #             st.session_state.evidence = search_public_evidence(
+    #                 TavilySearchProvider(settings.tavily_api_key), linkedin_url,
+    #                 name_hint=name_hint, company_hint=company_hint,
+    #             )
     if st.button("1. Research public sources", type="primary"):
-        if not settings.tavily_api_key:
-            st.error("Set TAVILY_API_KEY in .env before public-web research.")
-        else:
-            try:
-                st.session_state.evidence = search_public_evidence(
-                    TavilySearchProvider(settings.tavily_api_key), linkedin_url,
-                    name_hint=name_hint, company_hint=company_hint,
-                )
+    tavily_api_key = settings.tavily_api_key
+
+    # Streamlit Cloud uses st.secrets; local development uses .env.
+    if not tavily_api_key:
+        tavily_api_key = st.secrets.get("TAVILY_API_KEY", "")
+
+    if not tavily_api_key:
+        st.error("Set TAVILY_API_KEY in local .env or Streamlit Cloud Secrets.")
+    else:
+        try:
+            st.session_state.evidence = search_public_evidence(
+                TavilySearchProvider(tavily_api_key),
+                linkedin_url,
+                name_hint=name_hint,
+                company_hint=company_hint,
+            )   
                 st.session_state.linkedin_url = linkedin_url
                 st.session_state.identity = None
                 st.session_state.claims = []
