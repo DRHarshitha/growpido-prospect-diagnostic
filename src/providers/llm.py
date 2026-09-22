@@ -2,6 +2,7 @@
 
 from abc import ABC, abstractmethod
 import json
+import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -182,24 +183,53 @@ class GeminiProvider(LLMProvider):
             for message in messages
         )
 
-        response = client.models.generate_content(
-            model=self.model,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=temperature,
-            ),
-        )
+        last_error: Exception | None = None
 
-        output = response.text or ""
+        # Retry temporary Gemini availability/capacity errors.
+        for attempt in range(3):
+            try:
+                response = client.models.generate_content(
+                    model=self.model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        temperature=temperature,
+                    ),
+                )
 
-        if not output:
-            raise RuntimeError(
-                "Gemini generation returned no text."
-            )
+                output = response.text or ""
 
-        return LLMResponse(
-            text=output,
-            model=self.model,
+                if not output:
+                    raise RuntimeError(
+                        "Gemini generation returned no text."
+                    )
+
+                return LLMResponse(
+                    text=output,
+                    model=self.model,
+                )
+
+            except Exception as error:
+                last_error = error
+                error_text = str(error)
+
+                temporary_error = (
+                    "503" in error_text
+                    or "UNAVAILABLE" in error_text
+                    or "high demand" in error_text.lower()
+                )
+
+                if temporary_error and attempt < 2:
+                    # 3 seconds after first failure,
+                    # 6 seconds after second failure.
+                    time.sleep(3 * (attempt + 1))
+                    continue
+
+                raise RuntimeError(
+                    f"Gemini generation failed: {error}"
+                ) from error
+
+        raise RuntimeError(
+            f"Gemini generation failed after retries: {last_error}"
         )
 
 
