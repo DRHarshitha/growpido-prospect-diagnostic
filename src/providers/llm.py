@@ -211,7 +211,7 @@ def create_llm_provider(
     ollama_base_url: str,
     ollama_model: str,
     gemini_api_key: str | None = None,
-    gemini_model: str = "gemini-2.5-flash",
+    gemini_model: str = "gemini-3.6-flash",
 ) -> LLMProvider:
     """Construct the configured extraction-only provider."""
 

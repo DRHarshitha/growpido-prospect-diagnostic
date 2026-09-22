@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     ollama_model: str = "qwen2.5:0.5b"
 
     openai_model: str = "gpt-4.1-mini"
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.6-flash"
 
     search_provider: str = "tavily"
     runs_directory: str = "data/runs"
